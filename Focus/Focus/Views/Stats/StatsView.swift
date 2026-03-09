@@ -176,7 +176,7 @@ struct StatsView: View {
                 VStack(spacing: 0) {
                     statsHeader
                         .padding(.horizontal, 16)
-                        .padding(.bottom, 20)
+                        .padding(.bottom, 8) // Reduced from 20 to 8
                         .padding(.top, 50)
                 }
                 .headerGradientBlur()

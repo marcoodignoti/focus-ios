@@ -73,23 +73,22 @@ extension View {
     func headerGradientBlur() -> some View {
         self.background {
             ZStack(alignment: .top) {
-                // Base material that covers the safe area and the view itself
                 Rectangle()
                     .fill(.ultraThinMaterial)
                     .ignoresSafeArea(edges: .top)
             }
             .mask {
                 VStack(spacing: 0) {
-                    // Solid black for the entire area of the view
+                    // Solid black for the content area
                     Color.black
                     
-                    // Gradient only for the bottom edge to fade out smoothly
+                    // Shorter gradient for a tighter transition
                     LinearGradient(
                         colors: [.black, .clear],
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .frame(height: 30)
+                    .frame(height: 15) // Reduced from 30 to 15
                 }
             }
         }
