@@ -106,6 +106,16 @@ struct StatsView: View {
     private var statsCardHeader: some View {
         VStack(spacing: 4) {
             HStack {
+                // DEBUG BUTTON
+                Button {
+                    if let a = achievementStore.achievements.first {
+                        achievementStore.newlyUnlockedAchievement = a
+                    }
+                } label: {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.orange.opacity(0.4))
+                }
+                
                 Spacer()
                 streakIndicator
             }

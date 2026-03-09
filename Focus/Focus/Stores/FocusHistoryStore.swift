@@ -23,9 +23,10 @@ class FocusHistoryStore {
 
     private func save() {
         let sessionsToSave = sessions // Capture current state
+        let key = Self.storageKey
         queue.async {
             if let data = try? JSONEncoder().encode(sessionsToSave) {
-                UserDefaults.standard.set(data, forKey: Self.storageKey)
+                UserDefaults.standard.set(data, forKey: key)
             }
         }
     }

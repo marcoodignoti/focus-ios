@@ -76,10 +76,19 @@ struct ModeBreakdownItem: Identifiable, Sendable {
     }
 }
 
+// MARK: – Internal Transfer Object
+
+struct CalculationResults: Sendable {
+    let summary: StatsSummary
+    let breakdown: [ModeBreakdownItem]
+    let chart: [ChartDataPoint]
+}
+
 // MARK: – ViewModel
 
 @Observable
-final class StatsViewModel: @unchecked Sendable {
+@MainActor
+final class StatsViewModel {
 
     var selectedPeriod: StatsPeriod = .day
     var referenceDate: Date = Date()
@@ -104,30 +113,32 @@ final class StatsViewModel: @unchecked Sendable {
         let date = referenceDate
         let modeId = selectedModeId
         
-        // Use Task but not detached to keep context if needed, 
-        // but we explicitly do the heavy work in a background priority.
-        Task(priority: .userInitiated) {
-            let summary = await StatsViewModel.calculateSummary(from: sessions, period: period, date: date, modeId: modeId)
-            let breakdown = await StatsViewModel.calculateModeBreakdown(from: sessions, period: period, date: date)
-            let chart = await StatsViewModel.calculateChartData(from: sessions, period: period, date: date, modeId: modeId)
+        Task {
+            // Explicitly move to background via a non-isolated method
+            let results = await performCalculations(sessions: sessions, period: period, date: date, modeId: modeId)
             
-            await MainActor.run {
-                self.cachedSummary = summary
-                self.cachedModeBreakdown = breakdown
-                self.cachedChartData = chart
-                self.isRefreshing = false
-            }
+            self.cachedSummary = results.summary
+            self.cachedModeBreakdown = results.breakdown
+            self.cachedChartData = results.chart
+            self.isRefreshing = false
         }
+    }
+    
+    // Non-isolated heavy work
+    nonisolated private func performCalculations(sessions: [FocusSession], period: StatsPeriod, date: Date, modeId: String?) async -> CalculationResults {
+        let summary = await StatsViewModel.calculateSummary(from: sessions, period: period, date: date, modeId: modeId)
+        let breakdown = await StatsViewModel.calculateModeBreakdown(from: sessions, period: period, date: date)
+        let chart = await StatsViewModel.calculateChartData(from: sessions, period: period, date: date, modeId: modeId)
+        
+        return CalculationResults(summary: summary, breakdown: breakdown, chart: chart)
     }
 
     // MARK: – Navigation
 
-    @MainActor
     func goBack() {
         referenceDate = shift(by: -1)
     }
 
-    @MainActor
     func goForward() {
         let next = shift(by: 1)
         if next <= Date() { referenceDate = next }
