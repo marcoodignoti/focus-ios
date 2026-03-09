@@ -15,6 +15,15 @@ enum StatsPeriod: String, CaseIterable, Identifiable {
         case .year:  "Year"
         }
     }
+    
+    var shortLabel: String {
+        switch self {
+        case .day:   "D"
+        case .week:  "W"
+        case .month: "M"
+        case .year:  "Y"
+        }
+    }
 }
 
 // MARK: – Chart data point
@@ -32,6 +41,7 @@ struct ChartDataPoint: Identifiable {
 struct StatsSummary {
     let totalSessions: Int
     let totalMinutes: Int
+    let longestSessionMinutes: Int
     let averageDailyMinutes: Double
     let topModeName: String
     let topModeIcon: String
@@ -42,6 +52,7 @@ struct StatsSummary {
 
 struct ModeBreakdownItem: Identifiable {
     let id = UUID()
+    let modeId: String
     let modeName: String
     let colorHex: String
     let minutes: Int
@@ -61,8 +72,9 @@ struct TrendDelta {
 @MainActor
 final class StatsViewModel {
 
-    var selectedPeriod: StatsPeriod = .week
+    var selectedPeriod: StatsPeriod = .day // Default to Day for the detailed view
     var referenceDate: Date = Date()
+    var selectedModeId: String? = nil
 
     // MARK: – Cached Data
 
@@ -77,7 +89,6 @@ final class StatsViewModel {
     private let calendar = Calendar.current
 
     /// Updates all cached data based on the provided sessions.
-    /// Call this whenever sessions change or when period/referenceDate changes.
     func refresh(with sessions: [FocusSession]) {
         self.cachedSummary = summary(from: sessions)
         self.cachedModeBreakdown = modeBreakdown(from: sessions)
@@ -98,9 +109,6 @@ final class StatsViewModel {
         let next = shift(by: 1)
         if next <= Date() { referenceDate = next }
     }
-    
-    // ... rest of the methods remain as private or internal helpers ...
-
 
     var canGoForward: Bool {
         shift(by: 1) <= Date()
@@ -110,7 +118,7 @@ final class StatsViewModel {
         let fmt = DateFormatter()
         switch selectedPeriod {
         case .day:
-            fmt.dateFormat = "d MMM yyyy"
+            fmt.dateFormat = "EEEE, MMM d"
             return fmt.string(from: referenceDate)
         case .week:
             guard let interval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else { return "" }
@@ -127,7 +135,6 @@ final class StatsViewModel {
         }
     }
 
-    /// Header subtitle like "Mar 7, Today"
     var headerSubtitle: String {
         let months = ["Jan","Feb","Mar","Apr","May","Jun",
                       "Jul","Aug","Sep","Oct","Nov","Dec"]
@@ -159,9 +166,9 @@ final class StatsViewModel {
     func summary(from sessions: [FocusSession]) -> StatsSummary {
         let filtered = filteredSessions(from: sessions)
         let total    = filtered.reduce(0) { $0 + $1.duration }
+        let longest  = filtered.map { $0.duration }.max() ?? 0
         let days     = daysInPeriod()
 
-        // Mode frequency
         var modeCounts: [String: (count: Int, color: String)] = [:]
         for s in filtered {
             let entry = modeCounts[s.modeTitle] ?? (0, s.color)
@@ -172,6 +179,7 @@ final class StatsViewModel {
         return StatsSummary(
             totalSessions:       filtered.count,
             totalMinutes:        total,
+            longestSessionMinutes: longest,
             averageDailyMinutes: days > 0 ? Double(total) / Double(days) : 0,
             topModeName:         top?.key ?? "–",
             topModeIcon:         "",
@@ -182,18 +190,21 @@ final class StatsViewModel {
     // MARK: – Mode Breakdown
 
     func modeBreakdown(from sessions: [FocusSession]) -> [ModeBreakdownItem] {
-        let filtered = filteredSessions(from: sessions)
-        let totalMins = filtered.reduce(0) { $0 + $1.duration }
+        guard let interval = dateInterval() else { return [] }
+        let periodSessions = sessions.filter { interval.contains($0.startDate) }
+        
+        let totalMins = periodSessions.reduce(0) { $0 + $1.duration }
         guard totalMins > 0 else { return [] }
 
-        var buckets: [String: (color: String, minutes: Int)] = [:]
-        for s in filtered {
-            let entry = buckets[s.modeTitle] ?? (s.color, 0)
-            buckets[s.modeTitle] = (entry.color, entry.minutes + s.duration)
+        var buckets: [String: (id: String, color: String, minutes: Int)] = [:]
+        for s in periodSessions {
+            let entry = buckets[s.modeTitle] ?? (s.modeTitle, s.color, 0)
+            buckets[s.modeTitle] = (entry.id, entry.color, entry.minutes + s.duration)
         }
 
         return buckets
             .map { ModeBreakdownItem(
+                modeId: $0.value.id,
                 modeName: $0.key,
                 colorHex: $0.value.color,
                 minutes: $0.value.minutes,
@@ -202,7 +213,7 @@ final class StatsViewModel {
             .sorted { $0.minutes > $1.minutes }
     }
 
-    // MARK: – Today / This Week Trends
+    // MARK: – Trends
 
     func todayTrend(from sessions: [FocusSession]) -> TrendDelta {
         let today = calendar.startOfDay(for: Date())
@@ -245,55 +256,24 @@ final class StatsViewModel {
         return TrendDelta(minutes: thisMins, deltaPercent: delta)
     }
 
-    /// Daily average in current week (minutes)
     func weekDailyAverage(from sessions: [FocusSession]) -> Int {
         guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: Date()) else { return 0 }
         let totalMins = sessions
             .filter { thisWeek.contains($0.startDate) }
             .reduce(0) { $0 + $1.duration }
 
-        // Days elapsed so far in the week
         let elapsed = max(1, calendar.dateComponents([.day], from: thisWeek.start, to: min(Date(), thisWeek.end)).day ?? 1)
         return totalMins / elapsed
     }
 
-    /// Stacked data grouped by weekday for the current week
     func weeklyStackedData(from sessions: [FocusSession]) -> [ChartDataPoint] {
         guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else { return [] }
         let filtered = sessions.filter { thisWeek.contains($0.startDate) }
         return groupByWeekday(filtered)
     }
 
-    /// Current weekday index (1=Sun, 2=Mon…) for highlighting
     var currentWeekdayIndex: Int {
         calendar.component(.weekday, from: Date())
-    }
-
-    // MARK: – Redesign Computeds
-
-    /// Shortcut for Today's minutes from sessions
-    func todayMinutes(from sessions: [FocusSession]) -> Int {
-        todayTrend(from: sessions).minutes
-    }
-
-    /// Shortcut for This Week's minutes from sessions
-    func weekMinutes(from sessions: [FocusSession]) -> Int {
-        weekTrend(from: sessions).minutes
-    }
-
-    /// Shortcut for Today's delta %
-    func todayDelta(from sessions: [FocusSession]) -> Double {
-        todayTrend(from: sessions).deltaPercent
-    }
-
-    /// Shortcut for This Week's delta %
-    func weekDelta(from sessions: [FocusSession]) -> Double {
-        weekTrend(from: sessions).deltaPercent
-    }
-
-    /// Shortcut for Daily Average in current week
-    func dailyAverage(from sessions: [FocusSession]) -> Int {
-        weekDailyAverage(from: sessions)
     }
 
     // MARK: – Private helpers
@@ -311,7 +291,13 @@ final class StatsViewModel {
 
     private func filteredSessions(from sessions: [FocusSession]) -> [FocusSession] {
         guard let interval = dateInterval() else { return [] }
-        return sessions.filter { interval.contains($0.startDate) }
+        var result = sessions.filter { interval.contains($0.startDate) }
+        
+        if let modeId = selectedModeId {
+            result = result.filter { $0.modeTitle == modeId }
+        }
+        
+        return result
     }
 
     private func dateInterval() -> DateInterval? {
@@ -340,10 +326,19 @@ final class StatsViewModel {
         }
         var result: [ChartDataPoint] = []
         for hour in 0..<24 {
+            let label: String
+            if hour == 0 { label = "12am" }
+            else if hour == 7 { label = "7am" }
+            else if hour == 13 { label = "1pm" }
+            else if hour == 19 { label = "7pm" }
+            else { label = "" }
+
             if let entries = buckets[hour] {
                 for e in entries {
-                    result.append(ChartDataPoint(label: "\(hour)", minutes: e.1, colorHex: e.2, modeName: e.0))
+                    result.append(ChartDataPoint(label: label, minutes: e.1, colorHex: e.2, modeName: e.0))
                 }
+            } else if !label.isEmpty {
+                result.append(ChartDataPoint(label: label, minutes: 0, colorHex: "#FFFFFF", modeName: ""))
             }
         }
         return result
