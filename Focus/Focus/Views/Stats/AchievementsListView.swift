@@ -3,8 +3,11 @@ import SwiftUI
 struct AchievementsListView: View {
     @Environment(AchievementStore.self) private var achievementStore
     @Environment(\.dismiss) private var dismiss
+    @State private var showResetConfirm = false
     
     var body: some View {
+        @Bindable var bindableStore = achievementStore
+        
         NavigationStack {
             ZStack {
                 Color(hex: "#111116").ignoresSafeArea()
@@ -36,10 +39,28 @@ struct AchievementsListView: View {
             .navigationTitle("Achievements")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showResetConfirm = true
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .foregroundStyle(.red.opacity(0.8))
+                    }
+                }
+                
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                         .foregroundStyle(.orange)
                 }
+            }
+            .confirmationDialog("Reset Achievements?", isPresented: $showResetConfirm, titleVisibility: .visible) {
+                Button("Reset All", role: .destructive) {
+                    achievementStore.resetAchievements()
+                    HapticManager.notifyWarning()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will lock all badges and reset your progress.")
             }
         }
         .preferredColorScheme(.dark)

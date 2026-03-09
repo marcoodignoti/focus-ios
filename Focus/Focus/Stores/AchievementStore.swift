@@ -6,6 +6,7 @@ import Observation
 class AchievementStore {
     var achievements: [Achievement] = []
     var currentStreak: Int = 0
+    var newlyUnlockedAchievement: Achievement? = nil
     
     private static let storageKey = "focus-achievements-storage"
     private let calendar = Calendar.current
@@ -49,6 +50,7 @@ class AchievementStore {
                 if reachedGoal {
                     achievements[i].isUnlocked = true
                     achievements[i].unlockDate = Date()
+                    newlyUnlockedAchievement = achievements[i]
                     changed = true
                 }
             }
@@ -78,6 +80,12 @@ class AchievementStore {
             }
         }
         return streak
+    }
+    
+    func resetAchievements() {
+        UserDefaults.standard.removeObject(forKey: Self.storageKey)
+        loadAchievements()
+        newlyUnlockedAchievement = nil
     }
     
     private func save() {

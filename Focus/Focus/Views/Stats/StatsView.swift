@@ -12,6 +12,8 @@ struct StatsView: View {
     private var isScrolled: Bool { scrollOffset < -5 }
 
     var body: some View {
+        @Bindable var bindableAchievement = achievementStore
+        
         ZStack(alignment: .top) {
             Color(hex: "#111116").ignoresSafeArea()
             
@@ -42,6 +44,16 @@ struct StatsView: View {
                                 // Date & Total Time
                                 VStack(spacing: 4) {
                                     HStack {
+                                        // DEBUG BUTTON
+                                        Button {
+                                            if let a = achievementStore.achievements.first {
+                                                achievementStore.newlyUnlockedAchievement = a
+                                            }
+                                        } label: {
+                                            Image(systemName: "sparkles")
+                                                .foregroundStyle(.orange.opacity(0.4))
+                                        }
+                                        
                                         Spacer()
                                         streakIndicator
                                     }
@@ -136,6 +148,15 @@ struct StatsView: View {
         }
         .sheet(isPresented: $showAchievements) {
             AchievementsListView()
+        }
+        .overlay {
+            if let ach = bindableAchievement.newlyUnlockedAchievement {
+                AchievementUnlockOverlay(achievement: ach) {
+                    achievementStore.newlyUnlockedAchievement = nil
+                }
+                .transition(.opacity)
+                .zIndex(100)
+            }
         }
     }
 
