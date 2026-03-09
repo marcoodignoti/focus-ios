@@ -64,12 +64,8 @@ struct FocusCalendarView: View {
                         .padding(.bottom, 20)
                         .padding(.top, 50)
                 }
-                .background {
-                    Color.clear
-                        .background(.ultraThinMaterial)
-                        .opacity(isScrolled ? 1 : 0)
-                        .ignoresSafeArea(edges: .top)
-                }
+                .headerGradientBlur()
+                .opacity(isScrolled ? 1 : 0)
                 .animation(.easeInOut(duration: 0.2), value: isScrolled)
             }
 

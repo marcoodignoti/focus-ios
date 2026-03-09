@@ -69,6 +69,21 @@ extension View {
     func glassBackground<S: Shape>(in shape: S) -> some View {
         self.modifier(GlassBackgroundModifier(shape: shape))
     }
+    
+    func headerGradientBlur() -> some View {
+        self.background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .mask {
+                    LinearGradient(
+                        colors: [.black, .black, .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .ignoresSafeArea(edges: .top)
+        }
+    }
 }
 
 private struct GlassBackgroundModifier<S: Shape>: ViewModifier {
