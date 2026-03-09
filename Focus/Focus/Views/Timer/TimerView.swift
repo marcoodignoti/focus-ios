@@ -1,99 +1,81 @@
 import SwiftUI
-import Combine
 
 struct TimerView: View {
     @Environment(FocusModesStore.self) private var modesStore
     @Environment(FocusHistoryStore.self) private var historyStore
     @Environment(UIStateStore.self) private var uiStore
+    
+    // ViewModel is initialized once with its dependencies
+    @State private var viewModel: TimerViewModel?
 
-    // Timer state
-    @State private var isActive            = false
-    @State private var isPaused            = false
-    @State private var timeRemaining:Double = 0
-    @State private var sessionStartTime:   Date?  = nil
-    @State private var timeElapsedBeforePause: TimeInterval = 0
-    @State private var accumulatedMinutes  = 0
-
-    // Hold-to-stop
-    @State private var holdProgress: Double = 0
-    @State private var isHolding            = false
-    @State private var holdTimer:           Timer? = nil
-
-    // Smooth 0.1 s tick
-    private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
-
-    // MARK: – Derived
-
-    private var currentDurationSeconds: Double {
-        let fs = Double(modesStore.currentMode.duration * 60)
-        switch modesStore.pomodoroState.phase {
-        case .focus:      return fs
-        case .shortBreak:
-            let b = fs * 0.2
-            return b > 60 ? (ceil(b / 60) * 60) : ceil(b)
-        case .longBreak:
-            let b = fs * 0.6
-            return b > 60 ? (ceil(b / 60) * 60) : ceil(b)
+    var body: some View {
+        Group {
+            if let vm = viewModel {
+                timerContent(vm)
+            } else {
+                Color(hex: "#111116")
+                    .onAppear {
+                        viewModel = TimerViewModel(modesStore: modesStore, historyStore: historyStore)
+                    }
+            }
         }
     }
 
-    // MARK: – Body
-
-    var body: some View {
+    @ViewBuilder
+    private func timerContent(_ vm: TimerViewModel) -> some View {
         ZStack {
             // Backgrounds
             Color(hex: "#111116").ignoresSafeArea()
-            if isActive {
+            if vm.isActive {
                 Color(hex: "#1C1D2A")
                     .ignoresSafeArea()
                     .transition(.opacity)
-                    .animation(.easeInOut(duration: 0.5), value: isActive)
+                    .animation(.easeInOut(duration: 0.5), value: vm.isActive)
             }
 
-            // Full-screen Hold-to-stop gesture (only when active)
+            // Full-screen Hold-to-stop gesture
             Color.clear
                 .contentShape(Rectangle())
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { _ in
-                            if isActive && !isHolding { beginHold() }
+                            if vm.isActive && !vm.isHolding { vm.beginHold() }
                         }
                         .onEnded { _ in
-                            if isHolding { cancelHold() }
+                            if vm.isHolding { vm.cancelHold() }
                         }
                 )
                 .ignoresSafeArea()
-                .allowsHitTesting(isActive)
+                .allowsHitTesting(vm.isActive)
 
             VStack(spacing: 0) {
                 Spacer()
 
-                // ── Top section ──────────────────────────────────────────────
                 VStack(spacing: 0) {
                     // Phase label
                     Text(modesStore.pomodoroState.phase.displayName.uppercased())
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .tracking(1.5)
                         .foregroundStyle(.white.opacity(0.6))
-                        .opacity(isActive ? 1 : 0)
+                        .opacity(vm.isActive ? 1 : 0)
                         .padding(.bottom, 12)
 
                     // Timer digits
                     Button(action: {
-                        if !isActive {
+                        if !vm.isActive {
                             HapticManager.impactLight()
                             uiStore.isRulerVisible = true
                         }
                     }) {
                         TimerDisplayView(
-                            totalSeconds: currentDurationSeconds,
-                            timeRemaining: timeRemaining
+                            totalSeconds: vm.calculateDuration(),
+                            timeRemaining: vm.timeRemaining
                         )
-                        .opacity(isPaused ? 0.6 : 1.0)
-                        .animation(.easeInOut(duration: 0.3), value: isPaused)
+                        .opacity(vm.isPaused ? 0.6 : 1.0)
+                        .animation(.easeInOut(duration: 0.3), value: vm.isPaused)
                     }
                     .buttonStyle(.plain)
-                    .disabled(isActive)
+                    .disabled(vm.isActive)
                     .id("\(modesStore.timerResetKey)-\(modesStore.pomodoroState.phase)-\(modesStore.pomodoroState.sessionCount)")
 
                     // Mode selector
@@ -101,10 +83,10 @@ struct TimerView: View {
                         uiStore.isModeSelectionVisible = true
                     }
                     .padding(.top, 10)
-                    .opacity(isActive ? 0 : 1)
+                    .opacity(vm.isActive ? 0 : 1)
 
                     // Session dots
-                    if isActive {
+                    if vm.isActive {
                         VStack(spacing: 24) {
                             HStack(spacing: 8) {
                                 ForEach(1...4, id: \.self) { i in
@@ -115,12 +97,11 @@ struct TimerView: View {
                                 }
                             }
                             
-                            // 2. Pause / Resume Button (Middle)
                             Button(action: {
-                                if isPaused { resumeFocus() }
-                                else { pauseFocus() }
+                                if vm.isPaused { vm.resumeFocus() }
+                                else { vm.pauseFocus() }
                             }) {
-                                Image(systemName: isPaused ? "play.fill" : "pause.fill")
+                                Image(systemName: vm.isPaused ? "play.fill" : "pause.fill")
                                     .font(.system(size: 20, weight: .bold))
                                     .foregroundColor(.white)
                                     .frame(width: 64, height: 64)
@@ -135,17 +116,15 @@ struct TimerView: View {
 
                 Spacer()
 
-                // ── Bottom section ───────────────────────────────────────────
-                if !isActive {
-                    StartButtonView(label: "Start Focus", onPress: startFocus)
+                if !vm.isActive {
+                    StartButtonView(label: "Start Focus", onPress: vm.startFocus)
                         .padding(.bottom, 110)
                         .transition(.opacity)
                 } else {
-                    // 3. Hold-to-stop UI (Restored)
                     VStack(spacing: 14) {
                         Text("Hold to stop focus")
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white.opacity(isHolding ? 1.0 : 0.7))
+                            .foregroundColor(.white.opacity(vm.isHolding ? 1.0 : 0.7))
 
                         ZStack(alignment: .leading) {
                             Capsule()
@@ -153,15 +132,14 @@ struct TimerView: View {
                                 .frame(width: 180, height: 8)
                             Capsule()
                                 .fill(.white)
-                                .frame(width: 180 * holdProgress, height: 8)
+                                .frame(width: 180 * vm.holdProgress, height: 8)
                         }
                     }
                     .padding(.bottom, 110)
                     .transition(.opacity)
                 }
 
-                // Swipe-up pill indicator
-                if !isActive {
+                if !vm.isActive {
                     Capsule()
                         .fill(.white.opacity(0.2))
                         .frame(width: 36, height: 5)
@@ -169,9 +147,8 @@ struct TimerView: View {
                         .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.4), value: isActive)
+            .animation(.easeInOut(duration: 0.4), value: vm.isActive)
         }
-        // ── Overlays ─────────────────────────────────────────────────────────
         .overlay {
             if uiStore.isModeSelectionVisible {
                 ModeSelectionView()
@@ -192,40 +169,13 @@ struct TimerView: View {
                 }
             }
         }
-        // ── Timer tick ───────────────────────────────────────────────────────
-        .onReceive(ticker) { _ in
-            guard isActive, !isPaused, let start = sessionStartTime else { return }
-            
-            let elapsedSinceStart = Date().timeIntervalSince(start)
-            let totalElapsed = timeElapsedBeforePause + elapsedSinceStart
-            let total = currentDurationSeconds
-            
-            if totalElapsed < total {
-                timeRemaining = total - totalElapsed
-            } else {
-                timeRemaining = 0
-                handleTimerComplete()
-            }
-        }
-        // ── Reset when store signals a new timer ─────────────────────────────
         .onChange(of: modesStore.timerResetKey) {
-            if !isActive {
-                timeRemaining = currentDurationSeconds
-            }
+            vm.resetDuration()
         }
-        .onChange(of: currentDurationSeconds) {
-            if !isActive {
-                timeRemaining = currentDurationSeconds
-            }
-        }
-        .onAppear {
-            if !isActive {
-                timeRemaining = currentDurationSeconds
-            }
+        .onChange(of: modesStore.currentMode.duration) {
+            vm.resetDuration()
         }
     }
-
-    // MARK: – Dot helpers
 
     private func dotColor(for i: Int) -> Color {
         let sc = modesStore.pomodoroState.sessionCount
@@ -239,113 +189,4 @@ struct TimerView: View {
     private func isDotScaled(for i: Int) -> Bool {
         i == modesStore.pomodoroState.sessionCount
     }
-
-    // MARK: – Timer logic
-
-    private func startFocus() {
-        HapticManager.impactMedium()
-        sessionStartTime       = Date()
-        timeElapsedBeforePause = 0
-        isActive               = true
-        isPaused               = false
-        timeRemaining          = currentDurationSeconds
-        accumulatedMinutes     = 0
-    }
-    
-    private func pauseFocus() {
-        HapticManager.impactLight()
-        if let start = sessionStartTime {
-            timeElapsedBeforePause += Date().timeIntervalSince(start)
-        }
-        sessionStartTime = nil
-        isPaused = true
-    }
-    
-    private func resumeFocus() {
-        HapticManager.impactLight()
-        sessionStartTime = Date()
-        isPaused = false
-    }
-
-    private func stopFocus() {
-        saveAccumulatedSession()
-        isActive               = false
-        isPaused               = false
-        sessionStartTime       = nil
-        timeElapsedBeforePause = 0
-        modesStore.resetTimer()
-        modesStore.resetPomodoro()
-    }
-
-    private func saveAccumulatedSession() {
-        guard accumulatedMinutes > 0 else { return }
-        let start = Date().addingTimeInterval(-Double(accumulatedMinutes * 60))
-        
-        historyStore.addSession(
-            modeId:    modesStore.currentMode.id,
-            modeTitle: modesStore.currentMode.name,
-            color:     getIconColorHex(modesStore.currentMode.icon),
-            startTime: start.timeIntervalSince1970 * 1000,
-            duration:  accumulatedMinutes
-        )
-        accumulatedMinutes = 0
-    }
-
-    private func handleTimerComplete() {
-        HapticManager.notifySuccess()
-
-        if modesStore.pomodoroState.phase == .focus {
-            accumulatedMinutes += modesStore.currentMode.duration
-        }
-        if modesStore.pomodoroState.phase == .longBreak {
-            saveAccumulatedSession()
-        }
-
-        modesStore.nextPomodoroPhase()
-        sessionStartTime       = Date() 
-        timeElapsedBeforePause = 0
-        isActive               = true
-        isPaused               = false
-        timeRemaining          = currentDurationSeconds
-    }
-
-    // MARK: – Hold-to-stop
-
-    private func beginHold() {
-        isHolding    = true
-        holdProgress = 0
-        HapticManager.impactLight()
-
-        let startTime = Date()
-        let duration: Double = 2.0
-
-        holdTimer = Timer.scheduledTimer(withTimeInterval: 1 / 60.0, repeats: true) { t in
-            nonisolated(unsafe) let timer = t
-            MainActor.assumeIsolated {
-                guard isHolding else { timer.invalidate(); return }
-                let elapsed  = Date().timeIntervalSince(startTime)
-                let progress = min(elapsed / duration, 1.0)
-                withAnimation(.linear(duration: 0.05)) {
-                    holdProgress = progress
-                }
-                if progress >= 1.0 {
-                    timer.invalidate()
-                    HapticManager.notifyWarning()
-                    stopFocus()
-                    isHolding    = false
-                    holdProgress = 0
-                }
-            }
-        }
-    }
-
-    private func cancelHold() {
-        isHolding = false
-        holdTimer?.invalidate()
-        holdTimer = nil
-        withAnimation(.easeOut(duration: 0.3)) {
-            holdProgress = 0
-        }
-    }
 }
-

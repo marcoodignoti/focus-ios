@@ -69,42 +69,56 @@ struct TrendDelta {
 // MARK: – ViewModel
 
 @Observable
-@MainActor
 final class StatsViewModel {
 
-    var selectedPeriod: StatsPeriod = .day // Default to Day for the detailed view
+    var selectedPeriod: StatsPeriod = .day
     var referenceDate: Date = Date()
     var selectedModeId: String? = nil
+    var isRefreshing = false
 
     // MARK: – Cached Data
 
     private(set) var cachedSummary: StatsSummary?
     private(set) var cachedModeBreakdown: [ModeBreakdownItem] = []
-    private(set) var cachedTodayTrend: TrendDelta?
-    private(set) var cachedWeekTrend: TrendDelta?
-    private(set) var cachedWeeklyStackedData: [ChartDataPoint] = []
     private(set) var cachedChartData: [ChartDataPoint] = []
     private(set) var cachedDailyAverage: Int = 0
 
     private let calendar = Calendar.current
 
     /// Updates all cached data based on the provided sessions.
+    /// Performs calculations on a background thread to keep UI responsive.
     func refresh(with sessions: [FocusSession]) {
-        self.cachedSummary = summary(from: sessions)
-        self.cachedModeBreakdown = modeBreakdown(from: sessions)
-        self.cachedTodayTrend = todayTrend(from: sessions)
-        self.cachedWeekTrend = weekTrend(from: sessions)
-        self.cachedWeeklyStackedData = weeklyStackedData(from: sessions)
-        self.cachedChartData = chartData(from: sessions)
-        self.cachedDailyAverage = weekDailyAverage(from: sessions)
+        isRefreshing = true
+        
+        // Capture current state to avoid race conditions during async work
+        let period = selectedPeriod
+        let date = referenceDate
+        let modeId = selectedModeId
+        
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            
+            let summary = self.calculateSummary(from: sessions, period: period, date: date, modeId: modeId)
+            let breakdown = self.calculateModeBreakdown(from: sessions, period: period, date: date)
+            let chart = self.calculateChartData(from: sessions, period: period, date: date, modeId: modeId)
+            
+            await MainActor.run {
+                self.cachedSummary = summary
+                self.cachedModeBreakdown = breakdown
+                self.cachedChartData = chart
+                self.isRefreshing = false
+            }
+        }
     }
 
     // MARK: – Navigation
 
+    @MainActor
     func goBack() {
         referenceDate = shift(by: -1)
     }
 
+    @MainActor
     func goForward() {
         let next = shift(by: 1)
         if next <= Date() { referenceDate = next }
@@ -135,39 +149,28 @@ final class StatsViewModel {
         }
     }
 
-    var headerSubtitle: String {
-        let months = ["Jan","Feb","Mar","Apr","May","Jun",
-                      "Jul","Aug","Sep","Oct","Nov","Dec"]
-        let isToday = calendar.isDateInToday(referenceDate)
-        let m = calendar.component(.month, from: referenceDate) - 1
-        let d = calendar.component(.day,   from: referenceDate)
-        return "\(months[m]) \(d)\(isToday ? ", Today" : "")"
-    }
+    // MARK: – Private Calculation Helpers (Thread Safe)
 
-    // MARK: – Chart Data
+    private func calculateChartData(from sessions: [FocusSession], period: StatsPeriod, date: Date, modeId: String?) -> [ChartDataPoint] {
+        let filtered = internalFilteredSessions(from: sessions, period: period, date: date, modeId: modeId)
 
-    func chartData(from sessions: [FocusSession]) -> [ChartDataPoint] {
-        let filtered = filteredSessions(from: sessions)
-
-        switch selectedPeriod {
+        switch period {
         case .day:
             return groupByHour(filtered)
         case .week:
-            return groupByWeekday(filtered)
+            return groupByWeekday(filtered, date: date)
         case .month:
-            return groupByDayOfMonth(filtered)
+            return groupByDayOfMonth(filtered, date: date)
         case .year:
             return groupByMonth(filtered)
         }
     }
 
-    // MARK: – Summary
-
-    func summary(from sessions: [FocusSession]) -> StatsSummary {
-        let filtered = filteredSessions(from: sessions)
+    private func calculateSummary(from sessions: [FocusSession], period: StatsPeriod, date: Date, modeId: String?) -> StatsSummary {
+        let filtered = internalFilteredSessions(from: sessions, period: period, date: date, modeId: modeId)
         let total    = filtered.reduce(0) { $0 + $1.duration }
         let longest  = filtered.map { $0.duration }.max() ?? 0
-        let days     = daysInPeriod()
+        let days     = internalDaysInPeriod(period: period, date: date)
 
         var modeCounts: [String: (count: Int, color: String)] = [:]
         for s in filtered {
@@ -187,10 +190,8 @@ final class StatsViewModel {
         )
     }
 
-    // MARK: – Mode Breakdown
-
-    func modeBreakdown(from sessions: [FocusSession]) -> [ModeBreakdownItem] {
-        guard let interval = dateInterval() else { return [] }
+    private func calculateModeBreakdown(from sessions: [FocusSession], period: StatsPeriod, date: Date) -> [ModeBreakdownItem] {
+        guard let interval = internalDateInterval(period: period, date: date) else { return [] }
         let periodSessions = sessions.filter { interval.contains($0.startDate) }
         
         let totalMins = periodSessions.reduce(0) { $0 + $1.duration }
@@ -213,71 +214,6 @@ final class StatsViewModel {
             .sorted { $0.minutes > $1.minutes }
     }
 
-    // MARK: – Trends
-
-    func todayTrend(from sessions: [FocusSession]) -> TrendDelta {
-        let today = calendar.startOfDay(for: Date())
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
-
-        let todayMins = sessions
-            .filter { calendar.isDate($0.startDate, inSameDayAs: today) }
-            .reduce(0) { $0 + $1.duration }
-        let yesterdayMins = sessions
-            .filter { calendar.isDate($0.startDate, inSameDayAs: yesterday) }
-            .reduce(0) { $0 + $1.duration }
-
-        let delta: Double = yesterdayMins > 0
-            ? (Double(todayMins - yesterdayMins) / Double(yesterdayMins)) * 100
-            : (todayMins > 0 ? 100 : 0)
-
-        return TrendDelta(minutes: todayMins, deltaPercent: delta)
-    }
-
-    func weekTrend(from sessions: [FocusSession]) -> TrendDelta {
-        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: Date()) else {
-            return TrendDelta(minutes: 0, deltaPercent: 0)
-        }
-        let prevWeekStart = calendar.date(byAdding: .weekOfYear, value: -1, to: thisWeek.start)!
-        guard let prevWeek = calendar.dateInterval(of: .weekOfYear, for: prevWeekStart) else {
-            return TrendDelta(minutes: 0, deltaPercent: 0)
-        }
-
-        let thisMins = sessions
-            .filter { thisWeek.contains($0.startDate) }
-            .reduce(0) { $0 + $1.duration }
-        let prevMins = sessions
-            .filter { prevWeek.contains($0.startDate) }
-            .reduce(0) { $0 + $1.duration }
-
-        let delta: Double = prevMins > 0
-            ? (Double(thisMins - prevMins) / Double(prevMins)) * 100
-            : (thisMins > 0 ? 100 : 0)
-
-        return TrendDelta(minutes: thisMins, deltaPercent: delta)
-    }
-
-    func weekDailyAverage(from sessions: [FocusSession]) -> Int {
-        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: Date()) else { return 0 }
-        let totalMins = sessions
-            .filter { thisWeek.contains($0.startDate) }
-            .reduce(0) { $0 + $1.duration }
-
-        let elapsed = max(1, calendar.dateComponents([.day], from: thisWeek.start, to: min(Date(), thisWeek.end)).day ?? 1)
-        return totalMins / elapsed
-    }
-
-    func weeklyStackedData(from sessions: [FocusSession]) -> [ChartDataPoint] {
-        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: referenceDate) else { return [] }
-        let filtered = sessions.filter { thisWeek.contains($0.startDate) }
-        return groupByWeekday(filtered)
-    }
-
-    var currentWeekdayIndex: Int {
-        calendar.component(.weekday, from: Date())
-    }
-
-    // MARK: – Private helpers
-
     private func shift(by direction: Int) -> Date {
         let component: Calendar.Component
         switch selectedPeriod {
@@ -289,30 +225,28 @@ final class StatsViewModel {
         return calendar.date(byAdding: component, value: direction, to: referenceDate) ?? referenceDate
     }
 
-    private func filteredSessions(from sessions: [FocusSession]) -> [FocusSession] {
-        guard let interval = dateInterval() else { return [] }
+    private func internalFilteredSessions(from sessions: [FocusSession], period: StatsPeriod, date: Date, modeId: String?) -> [FocusSession] {
+        guard let interval = internalDateInterval(period: period, date: date) else { return [] }
         var result = sessions.filter { interval.contains($0.startDate) }
-        
-        if let modeId = selectedModeId {
+        if let modeId = modeId {
             result = result.filter { $0.modeTitle == modeId }
         }
-        
         return result
     }
 
-    private func dateInterval() -> DateInterval? {
+    private func internalDateInterval(period: StatsPeriod, date: Date) -> DateInterval? {
         let component: Calendar.Component
-        switch selectedPeriod {
+        switch period {
         case .day:   component = .day
         case .week:  component = .weekOfYear
         case .month: component = .month
         case .year:  component = .year
         }
-        return calendar.dateInterval(of: component, for: referenceDate)
+        return calendar.dateInterval(of: component, for: date)
     }
 
-    private func daysInPeriod() -> Int {
-        guard let interval = dateInterval() else { return 1 }
+    private func internalDaysInPeriod(period: StatsPeriod, date: Date) -> Int {
+        guard let interval = internalDateInterval(period: period, date: date) else { return 1 }
         return max(1, calendar.dateComponents([.day], from: interval.start, to: interval.end).day ?? 1)
     }
 
@@ -344,7 +278,7 @@ final class StatsViewModel {
         return result
     }
 
-    private func groupByWeekday(_ sessions: [FocusSession]) -> [ChartDataPoint] {
+    private func groupByWeekday(_ sessions: [FocusSession], date: Date) -> [ChartDataPoint] {
         let symbols = calendar.shortWeekdaySymbols
         let first   = calendar.firstWeekday
         let ordered = Array(first...7) + Array(1..<first)
@@ -367,13 +301,13 @@ final class StatsViewModel {
         return result
     }
 
-    private func groupByDayOfMonth(_ sessions: [FocusSession]) -> [ChartDataPoint] {
+    private func groupByDayOfMonth(_ sessions: [FocusSession], date: Date) -> [ChartDataPoint] {
         var buckets: [Int: [(String, Int, String)]] = [:]
         for s in sessions {
             let day = calendar.component(.day, from: s.startDate)
             buckets[day, default: []].append((s.modeTitle, s.duration, s.color))
         }
-        let daysCount = calendar.range(of: .day, in: .month, for: referenceDate)?.count ?? 30
+        let daysCount = calendar.range(of: .day, in: .month, for: date)?.count ?? 30
         var result: [ChartDataPoint] = []
         for d in 1...daysCount {
             if let entries = buckets[d] {

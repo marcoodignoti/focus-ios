@@ -17,23 +17,11 @@ struct StatsView: View {
         ZStack(alignment: .top) {
             Color(hex: "#111116").ignoresSafeArea()
             
-            LinearGradient(
-                colors: [Color(hex: "#2A2A35"), Color(hex: "#111116")],
-                startPoint: .top,
-                endPoint: .center
-            )
-            .ignoresSafeArea()
+            backgroundGradient
 
             ScrollView(.vertical, showsIndicators: false) {
                 ZStack(alignment: .top) {
-                    GeometryReader { proxy in
-                        let minY = proxy.frame(in: .named("stats_scroll")).minY
-                        Color.clear.onAppear { scrollOffset = minY }
-                            .onChange(of: minY) { _, newValue in
-                                scrollOffset = newValue
-                            }
-                    }
-                    .frame(height: 0)
+                    scrollTracker
 
                     VStack(spacing: 24) {
                         adaptiveHeaderPadding()
@@ -41,75 +29,17 @@ struct StatsView: View {
                         // ── Main Glass Card ──────────────────────────────────
                         GlassCard(cornerRadius: 32) {
                             VStack(spacing: 24) {
-                                // Date & Total Time
-                                VStack(spacing: 4) {
-                                    HStack {
-                                        // DEBUG BUTTON
-                                        Button {
-                                            if let a = achievementStore.achievements.first {
-                                                achievementStore.newlyUnlockedAchievement = a
-                                            }
-                                        } label: {
-                                            Image(systemName: "sparkles")
-                                                .foregroundStyle(.orange.opacity(0.4))
-                                        }
-                                        
-                                        Spacer()
-                                        streakIndicator
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 16)
-
-                                    Text(viewModel.periodTitle)
-                                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.5))
-                                    
-                                    formattedTotalDuration(viewModel.cachedSummary?.totalMinutes ?? 0)
-                                    
-                                    Text("total focus time")
-                                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.3))
-                                }
-
+                                statsCardHeader
                                 periodSelector
-
-                                // Chart
-                                VStack(alignment: .leading, spacing: 12) {
-                                    StatsChartView(
-                                        data: viewModel.cachedChartData,
-                                        period: viewModel.selectedPeriod
-                                    )
-                                    .frame(height: 160)
-                                }
-
+                                chartSection
                                 modeFiltersRow
-
-                                // Bottom summary
-                                if let summary = viewModel.cachedSummary {
-                                    HStack(spacing: 12) {
-                                        summaryBox(value: "\(summary.totalSessions)", label: "focus sessions")
-                                        summaryBox(value: formattedHourDuration(summary.longestSessionMinutes), label: "longest session")
-                                    }
-                                }
-                                
-                                // ── Achievements Section ──
-                                achievementsPreview
-                                    .padding(.bottom, 24)
+                                bottomSummarySection
+                                achievementsPreview.padding(.bottom, 24)
                             }
                             .padding(.horizontal, 16)
                         }
 
-                        // Swipe-down hint
-                        VStack(spacing: 8) {
-                            Image(systemName: "chevron.compact.down")
-                                .font(.system(size: 22, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.25))
-                            Text("Swipe down to go back")
-                                .font(.system(size: 12, weight: .medium, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.25))
-                        }
-                        .padding(.top, 8)
-                        .padding(.bottom, 40)
+                        swipeDownHint
                     }
                     .padding(.horizontal, 16)
                 }
@@ -124,21 +54,7 @@ struct StatsView: View {
             .onChange(of: viewModel.referenceDate) { _, _ in refreshAll() }
             .onChange(of: viewModel.selectedModeId) { _, _ in refreshAll() }
             
-            // Header
-            if #unavailable(iOS 26) {
-                VStack(spacing: 0) {
-                    statsHeader
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 20)
-                        .padding(.top, 50)
-                }
-                .background {
-                    Color.clear
-                        .background(.ultraThinMaterial)
-                        .opacity(isScrolled ? 1 : 0)
-                        .ignoresSafeArea(edges: .top)
-                }
-            }
+            overlayHeader
         }
         .applyNativeStatsHeader(edge: .top) {
             statsHeader
@@ -165,7 +81,103 @@ struct StatsView: View {
         achievementStore.updateProgress(sessions: historyStore.sessions)
     }
 
-    // MARK: – Sub-views
+    // MARK: – Sub-components
+
+    private var backgroundGradient: some View {
+        LinearGradient(
+            colors: [Color(hex: "#2A2A35"), Color(hex: "#111116")],
+            startPoint: .top,
+            endPoint: .center
+        )
+        .ignoresSafeArea()
+    }
+
+    private var scrollTracker: some View {
+        GeometryReader { proxy in
+            let minY = proxy.frame(in: .named("stats_scroll")).minY
+            Color.clear.onAppear { scrollOffset = minY }
+                .onChange(of: minY) { _, newValue in
+                    scrollOffset = newValue
+                }
+        }
+        .frame(height: 0)
+    }
+
+    private var statsCardHeader: some View {
+        VStack(spacing: 4) {
+            HStack {
+                Spacer()
+                streakIndicator
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+
+            Text(viewModel.periodTitle)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.5))
+            
+            formattedTotalDuration(viewModel.cachedSummary?.totalMinutes ?? 0)
+            
+            Text("total focus time")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.3))
+        }
+    }
+
+    private var chartSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            StatsChartView(
+                data: viewModel.cachedChartData,
+                period: viewModel.selectedPeriod
+            )
+            .frame(height: 160)
+            .opacity(viewModel.isRefreshing ? 0.6 : 1.0)
+            .animation(.easeInOut, value: viewModel.isRefreshing)
+        }
+    }
+
+    private var bottomSummarySection: some View {
+        Group {
+            if let summary = viewModel.cachedSummary {
+                HStack(spacing: 12) {
+                    summaryBox(value: "\(summary.totalSessions)", label: "focus sessions")
+                    summaryBox(value: formattedHourDuration(summary.longestSessionMinutes), label: "longest session")
+                }
+            }
+        }
+    }
+
+    private var swipeDownHint: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "chevron.compact.down")
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(.white.opacity(0.25))
+            Text("Swipe down to go back")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.25))
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 40)
+    }
+
+    private var overlayHeader: some View {
+        Group {
+            if #unavailable(iOS 26) {
+                VStack(spacing: 0) {
+                    statsHeader
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 20)
+                        .padding(.top, 50)
+                }
+                .background {
+                    Color.clear
+                        .background(.ultraThinMaterial)
+                        .opacity(isScrolled ? 1 : 0)
+                        .ignoresSafeArea(edges: .top)
+                }
+            }
+        }
+    }
 
     private var statsHeader: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -343,37 +355,6 @@ private struct DatePillView: View {
                 }
             }
             .frame(width: 44).opacity(isSelected || isToday ? 1.0 : 0.6)
-        }
-    }
-}
-
-// MARK: – Extensions
-
-extension View {
-    @ViewBuilder
-    func applyNativeStatsHeader<Content: View>(edge: VerticalEdge, @ViewBuilder content: () -> Content) -> some View {
-        if #available(iOS 26, *) {
-            self.safeAreaBar(edge: edge, content: content)
-        } else {
-            self
-        }
-    }
-
-    @ViewBuilder
-    func applyScrollEdgeFallback() -> some View {
-        if #available(iOS 26.0, *) {
-            self.scrollEdgeEffectStyle(.soft, for: .top)
-        } else {
-            self.overlay(
-                LinearGradient(
-                    colors: [Color(hex: "#111116"), .clear],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 20)
-                .allowsHitTesting(false),
-                alignment: .top
-            )
         }
     }
 }

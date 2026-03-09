@@ -8,6 +8,7 @@ class FocusHistoryStore {
     var sessions: [FocusSession]
 
     private static let storageKey = "focus-history-storage"
+    private let queue = DispatchQueue(label: "com.focus.history.persistence", qos: .background)
 
     init() {
         if let data    = UserDefaults.standard.data(forKey: Self.storageKey),
@@ -21,8 +22,11 @@ class FocusHistoryStore {
     // MARK: – Persistence
 
     private func save() {
-        if let data = try? JSONEncoder().encode(sessions) {
-            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        let sessionsToSave = sessions // Capture current state
+        queue.async {
+            if let data = try? JSONEncoder().encode(sessionsToSave) {
+                UserDefaults.standard.set(data, forKey: Self.storageKey)
+            }
         }
     }
 
