@@ -23,15 +23,13 @@ final class TimerViewModel {
     var isHolding = false
     private var holdTask: Task<Void, Never>? = nil
     
-    // Ticker
-    private var cancellables = Set<AnyCancellable>()
-    private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+    // Ticker management
+    private var tickerCancellable: AnyCancellable? = nil
     
     init(modesStore: FocusModesStore, historyStore: FocusHistoryStore) {
         self.modesStore = modesStore
         self.historyStore = historyStore
         self.timeRemaining = calculateDuration()
-        setupTicker()
     }
     
     func calculateDuration() -> Double {
@@ -47,18 +45,26 @@ final class TimerViewModel {
         }
     }
     
-    private func setupTicker() {
-        ticker.sink { [weak self] _ in
-            guard let self = self else { return }
-            Task { @MainActor in
+    private func startTicker() {
+        tickerCancellable?.cancel()
+        tickerCancellable = Timer.publish(every: 0.1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self = self else { return }
                 self.tick()
             }
-        }
-        .store(in: &cancellables)
+    }
+    
+    private func stopTicker() {
+        tickerCancellable?.cancel()
+        tickerCancellable = nil
     }
     
     private func tick() {
-        guard isActive, !isPaused, let start = sessionStartTime else { return }
+        guard isActive, !isPaused, let start = sessionStartTime else { 
+            stopTicker()
+            return 
+        }
         
         let elapsedSinceStart = Date().timeIntervalSince(start)
         let totalElapsed = timeElapsedBeforePause + elapsedSinceStart
@@ -80,6 +86,7 @@ final class TimerViewModel {
         isPaused = false
         timeRemaining = calculateDuration()
         accumulatedMinutes = 0
+        startTicker()
     }
     
     func pauseFocus() {
@@ -89,12 +96,15 @@ final class TimerViewModel {
         }
         sessionStartTime = nil
         isPaused = true
+        // Keep ticker running or stop it? 
+        // Better stop it to save CPU, tick() will stop itself if paused.
     }
     
     func resumeFocus() {
         HapticManager.impactLight()
         sessionStartTime = Date()
         isPaused = false
+        startTicker()
     }
     
     func stopFocus() {
@@ -103,6 +113,7 @@ final class TimerViewModel {
         isPaused = false
         sessionStartTime = nil
         timeElapsedBeforePause = 0
+        stopTicker()
         modesStore.resetTimer()
         modesStore.resetPomodoro()
     }
@@ -137,9 +148,10 @@ final class TimerViewModel {
         isActive = true
         isPaused = false
         timeRemaining = calculateDuration()
+        // Ticker continues
     }
     
-    // MARK: - Hold to Stop Logic (Modern Swift Concurrency)
+    // MARK: - Hold to Stop Logic
     
     func beginHold() {
         isHolding = true
@@ -167,7 +179,6 @@ final class TimerViewModel {
                     return
                 }
                 
-                // Sleep for ~16ms to maintain 60fps
                 try? await Task.sleep(nanoseconds: 16_000_000)
             }
         }

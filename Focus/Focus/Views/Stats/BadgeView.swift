@@ -29,6 +29,7 @@ struct BadgeView: View {
                                      AnyShapeStyle(LinearGradient(colors: [.orange, .yellow], startPoint: .topLeading, endPoint: .bottomTrailing)) :
                                      AnyShapeStyle(LinearGradient(colors: [.white.opacity(0.2), .white.opacity(0.1)], startPoint: .top, endPoint: .bottom)))
                     .symbolEffect(.bounce, value: isAnimating)
+                    .rotationEffect(.degrees(isAnimating ? 5 : -5))
             }
             .onAppear {
                 if achievement.isUnlocked {

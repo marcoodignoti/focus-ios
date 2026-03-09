@@ -47,12 +47,22 @@ struct StatsView: View {
             .coordinateSpace(name: "stats_scroll")
             .applyScrollEdgeFallback()
             .task {
-                refreshAll()
+                viewModel.refresh(with: historyStore.sessions)
+                achievementStore.updateProgress(sessions: historyStore.sessions)
             }
-            .onChange(of: historyStore.sessions) { _, _ in refreshAll() }
-            .onChange(of: viewModel.selectedPeriod) { _, _ in refreshAll() }
-            .onChange(of: viewModel.referenceDate) { _, _ in refreshAll() }
-            .onChange(of: viewModel.selectedModeId) { _, _ in refreshAll() }
+            .onChange(of: historyStore.sessions) { _, newValue in
+                viewModel.refresh(with: newValue)
+                achievementStore.updateProgress(sessions: newValue)
+            }
+            .onChange(of: viewModel.selectedPeriod) { _, _ in
+                viewModel.refresh(with: historyStore.sessions)
+            }
+            .onChange(of: viewModel.referenceDate) { _, _ in
+                viewModel.refresh(with: historyStore.sessions)
+            }
+            .onChange(of: viewModel.selectedModeId) { _, _ in
+                viewModel.refresh(with: historyStore.sessions)
+            }
             
             overlayHeader
         }
