@@ -2,6 +2,7 @@ import UIKit
 
 /// Manages haptic feedback for the application.
 /// Pre-prepares generators to ensure minimal latency when feedback is triggered.
+@MainActor
 enum HapticManager {
     private static let selectionGenerator = UISelectionFeedbackGenerator()
     private static let lightImpactGenerator = UIImpactFeedbackGenerator(style: .light)

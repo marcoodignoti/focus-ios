@@ -112,26 +112,3 @@ private struct TickView: View {
     }
 }
 
-#Preview {
-    struct PreviewWrapper: View {
-        @State private var value = 25
-        var body: some View {
-            ZStack {
-                Color(hex: "#111116").ignoresSafeArea()
-                
-                VStack(spacing: 50) {
-                    Text("\(value) min")
-                        .font(.system(size: 40, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-                    
-                    RulerPickerView(value: $value)
-                        .frame(height: 120)
-                        .background(.white.opacity(0.05))
-                        .clipShape(RoundedRectangle(cornerRadius: 24))
-                        .padding(.horizontal)
-                }
-            }
-        }
-    }
-    return PreviewWrapper()
-}

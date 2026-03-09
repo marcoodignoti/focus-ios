@@ -42,12 +42,3 @@ struct TimerDisplayView: View {
     }
 }
 
-#Preview {
-    ZStack {
-        Color.black.ignoresSafeArea()
-        VStack(spacing: 50) {
-            TimerDisplayView(totalSeconds: 1500, timeRemaining: 1500)
-            TimerDisplayView(totalSeconds: 1500, timeRemaining: 1245)
-        }
-    }
-}

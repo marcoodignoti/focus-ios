@@ -214,11 +214,3 @@ private struct ModeRowView: View {
     }
 }
 
-#Preview {
-    ZStack {
-        Color.black.ignoresSafeArea()
-        ModeSelectionView()
-            .environment(FocusModesStore())
-            .environment(UIStateStore())
-    }
-}

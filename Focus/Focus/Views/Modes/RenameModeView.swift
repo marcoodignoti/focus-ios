@@ -73,7 +73,3 @@ struct RenameModeView: View {
     }
 }
 
-#Preview {
-    RenameModeView(mode: FocusMode.defaults[0])
-        .environment(FocusModesStore())
-}

@@ -222,12 +222,3 @@ struct AddSessionView: View {
     }
 }
 
-#Preview {
-    ZStack {
-        Color.black.ignoresSafeArea()
-        AddSessionView()
-            .environment(FocusModesStore())
-            .environment(FocusHistoryStore())
-            .environment(UIStateStore())
-    }
-}

@@ -1,0 +1,27 @@
+# Xcode
+build/
+DerivedData/
+*.hmap
+*.ipa
+*.plist.out
+*.xccheckout
+*.xcscmblueprint
+*.xcuserstate
+project.xcworkspace/
+xcuserdata/
+(Push.app)
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# xtool
+xtool/
+.xtool-tmp/
+
+# OS X
+.DS_Store
+
+# Temporary files
+*.swp
+*.lock

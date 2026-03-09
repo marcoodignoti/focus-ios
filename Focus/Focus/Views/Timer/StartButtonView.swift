@@ -30,9 +30,3 @@ private struct SpringButtonStyle: ButtonStyle {
     }
 }
 
-#Preview {
-    ZStack {
-        Color.black.ignoresSafeArea()
-        StartButtonView(label: "Start Focus") {}
-    }
-}

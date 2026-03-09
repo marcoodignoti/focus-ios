@@ -159,6 +159,15 @@ struct TimerView: View {
                     .padding(.bottom, 110)
                     .transition(.opacity)
                 }
+
+                // Swipe-up pill indicator
+                if !isActive {
+                    Capsule()
+                        .fill(.white.opacity(0.2))
+                        .frame(width: 36, height: 5)
+                        .padding(.bottom, 14)
+                        .transition(.opacity)
+                }
             }
             .animation(.easeInOut(duration: 0.4), value: isActive)
         }
@@ -311,18 +320,21 @@ struct TimerView: View {
         let duration: Double = 2.0
 
         holdTimer = Timer.scheduledTimer(withTimeInterval: 1 / 60.0, repeats: true) { t in
-            guard isHolding else { t.invalidate(); return }
-            let elapsed  = Date().timeIntervalSince(startTime)
-            let progress = min(elapsed / duration, 1.0)
-            withAnimation(.linear(duration: 0.05)) {
-                holdProgress = progress
-            }
-            if progress >= 1.0 {
-                t.invalidate()
-                HapticManager.notifyWarning()
-                stopFocus()
-                isHolding    = false
-                holdProgress = 0
+            nonisolated(unsafe) let timer = t
+            MainActor.assumeIsolated {
+                guard isHolding else { timer.invalidate(); return }
+                let elapsed  = Date().timeIntervalSince(startTime)
+                let progress = min(elapsed / duration, 1.0)
+                withAnimation(.linear(duration: 0.05)) {
+                    holdProgress = progress
+                }
+                if progress >= 1.0 {
+                    timer.invalidate()
+                    HapticManager.notifyWarning()
+                    stopFocus()
+                    isHolding    = false
+                    holdProgress = 0
+                }
             }
         }
     }
@@ -337,9 +349,3 @@ struct TimerView: View {
     }
 }
 
-#Preview {
-    TimerView()
-        .environment(FocusModesStore())
-        .environment(FocusHistoryStore())
-        .environment(UIStateStore())
-}

@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-struct FocusSession: Identifiable, Codable {
+struct FocusSession: Identifiable, Codable, Equatable {
     var id: String
     var modeId: String
     var modeTitle: String

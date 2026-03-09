@@ -109,6 +109,8 @@ struct FocusCalendarView: View {
                 Text(headerTitle)
                     .font(.system(size: 32, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                    .animation(.spring(response: 0.4, dampingFraction: 0.9), value: headerTitle)
                 Spacer()
                 
                 HStack(spacing: 12) {
@@ -135,50 +137,55 @@ struct FocusCalendarView: View {
                 }
             }
 
-            WeekStripView(
-                week: displayedWeek,
-                selectedDate: uiStore.selectedDate,
-                weekdaySymbols: weekdaySymbols,
-                onSelect: { uiStore.selectedDate = $0 },
-                onSwipe: { delta in currentWeekOffset += delta }
-            )
-        }
-    }
-}
-
-// MARK: – Week strip
-
-private struct WeekStripView: View {
-    let week:         [Date]
-    let selectedDate: Date
-    let weekdaySymbols: [String]
-    let onSelect:     (Date) -> Void
-    let onSwipe:      (Int) -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(week, id: \.self) { day in
-                DayPillView(day: day,
-                            weekdaySymbols: weekdaySymbols,
-                            isSelected: Calendar.current.isDate(day, inSameDayAs: selectedDate),
-                            onTap: { onSelect(day) })
-            }
-        }
-        .padding(.horizontal, 4)
-        .gesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded { g in
-                    if g.translation.width < -50 {
-                        HapticManager.impactLight()
-                        onSwipe(1)
-                    } else if g.translation.width > 50 {
-                        HapticManager.impactLight()
-                        onSwipe(-1)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 0) {
+                    ForEach(-52...52, id: \.self) { offset in
+                        let week = weekDays(for: offset)
+                        HStack(spacing: 8) {
+                            ForEach(week, id: \.self) { day in
+                                DayPillView(
+                                    day: day,
+                                    weekdaySymbols: weekdaySymbols,
+                                    isSelected: Calendar.current.isDate(day, inSameDayAs: uiStore.selectedDate),
+                                    onTap: { 
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                            uiStore.selectedDate = day 
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 4)
+                        .containerRelativeFrame(.horizontal)
+                        .id(offset)
                     }
                 }
-        )
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: Binding(
+                get: { currentWeekOffset },
+                set: { newValue in 
+                    if let v = newValue {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                            currentWeekOffset = v 
+                        }
+                    }
+                }
+            ))
+            .scrollIndicators(.hidden)
+            .frame(height: 68)
+        }
+    }
+
+    private func weekDays(for offset: Int) -> [Date] {
+        let monday = weekMonday(offset: offset)
+        return (0..<7).map { i in
+            Calendar.current.date(byAdding: .day, value: i, to: monday)!
+        }
     }
 }
+
 
 private struct DayPillView: View {
     let day:        Date
@@ -382,11 +389,4 @@ extension View {
             self.padding(.top, 220)
         }
     }
-}
-
-#Preview {
-    FocusCalendarView()
-        .environment(FocusModesStore())
-        .environment(FocusHistoryStore())
-        .environment(UIStateStore())
 }
