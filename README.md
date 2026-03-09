@@ -49,6 +49,7 @@ This project was created and is built using **[xtool](https://github.com/nicklam
 The project is structured as a **Swift Package Manager library** that xtool turns into a full iOS application:
 
 ```swift
+// swift-tools-version: 6.0
 // Package.swift
 let package = Package(
     name: "Focus",
@@ -61,7 +62,7 @@ let package = Package(
     targets: [
         .target(name: "Focus", path: "Focus", resources: [
             .process("Assets.xcassets")
-        ], swiftSettings: [.swiftLanguageMode(.v5)])
+        ])
     ]
 )
 ```
