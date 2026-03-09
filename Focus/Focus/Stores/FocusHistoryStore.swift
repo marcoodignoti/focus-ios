@@ -7,7 +7,7 @@ class FocusHistoryStore {
 
     var sessions: [FocusSession]
 
-    private static let storageKey = "focus-history-storage"
+    nonisolated private static let storageKey = "focus-history-storage"
     private let queue = DispatchQueue(label: "com.focus.history.persistence", qos: .background)
 
     init() {

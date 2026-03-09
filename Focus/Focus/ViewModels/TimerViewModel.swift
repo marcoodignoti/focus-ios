@@ -147,20 +147,24 @@ final class TimerViewModel {
         let duration: Double = 2.0
 
         holdTimer = Timer.scheduledTimer(withTimeInterval: 1 / 60.0, repeats: true) { [weak self] t in
-            guard let self = self, self.isHolding else { t.invalidate(); return }
-            let elapsed = Date().timeIntervalSince(startTime)
-            let progress = min(elapsed / duration, 1.0)
+            guard let self = self else { t.invalidate(); return }
             
-            withAnimation(.linear(duration: 0.05)) {
-                self.holdProgress = progress
-            }
-            
-            if progress >= 1.0 {
-                t.invalidate()
-                HapticManager.notifyWarning()
-                self.stopFocus()
-                self.isHolding = false
-                self.holdProgress = 0
+            Task { @MainActor in
+                guard self.isHolding else { t.invalidate(); return }
+                let elapsed = Date().timeIntervalSince(startTime)
+                let progress = min(elapsed / duration, 1.0)
+                
+                withAnimation(.linear(duration: 0.05)) {
+                    self.holdProgress = progress
+                }
+                
+                if progress >= 1.0 {
+                    t.invalidate()
+                    HapticManager.notifyWarning()
+                    self.stopFocus()
+                    self.isHolding = false
+                    self.holdProgress = 0
+                }
             }
         }
     }

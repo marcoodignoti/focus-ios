@@ -355,3 +355,34 @@ private struct DatePillView: View {
         }
     }
 }
+
+// MARK: – Extensions
+
+extension View {
+    @ViewBuilder
+    func applyNativeStatsHeader<Content: View>(edge: VerticalEdge, @ViewBuilder content: () -> Content) -> some View {
+        if #available(iOS 26, *) {
+            self.safeAreaBar(edge: edge, content: content)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func applyScrollEdgeFallback() -> some View {
+        if #available(iOS 26.0, *) {
+            self.scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self.overlay(
+                LinearGradient(
+                    colors: [Color(hex: "#111116"), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 20)
+                .allowsHitTesting(false),
+                alignment: .top
+            )
+        }
+    }
+}
