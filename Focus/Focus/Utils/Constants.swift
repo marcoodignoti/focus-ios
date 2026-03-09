@@ -73,24 +73,55 @@ extension View {
     func headerGradientBlur() -> some View {
         self.background {
             ZStack(alignment: .top) {
+                // Progressive Blur approximation using multiple layered materials with different masks
+                // This mimics a variable blur radius by stacking materials with decreasing opacity/reach
+                
+                // Layer 1: Base blur (extends furthest)
                 Rectangle()
                     .fill(.ultraThinMaterial)
-                    .ignoresSafeArea(edges: .top)
+                    .mask {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black.opacity(0.2), location: 0.8),
+                                .init(color: .clear, location: 1.0)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                
+                // Layer 2: Mid-strength (shorter reach)
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .mask {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black.opacity(0.5), location: 0.5),
+                                .init(color: .clear, location: 0.8)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                
+                // Layer 3: Strongest blur (top area only)
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .mask {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black, location: 0.3),
+                                .init(color: .clear, location: 0.6)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
             }
-            .mask {
-                VStack(spacing: 0) {
-                    // Solid black for the content area
-                    Color.black
-                    
-                    // Shorter gradient for a tighter transition
-                    LinearGradient(
-                        colors: [.black, .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 15) // Reduced from 30 to 15
-                }
-            }
+            .ignoresSafeArea(edges: .top)
         }
     }
 }
