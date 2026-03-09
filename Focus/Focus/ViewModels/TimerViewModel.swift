@@ -21,7 +21,7 @@ final class TimerViewModel {
     // Hold-to-stop
     var holdProgress: Double = 0
     var isHolding = false
-    private var holdTimer: Timer? = nil
+    private var holdTask: Task<Void, Never>? = nil
     
     // Ticker
     private var cancellables = Set<AnyCancellable>()
@@ -49,7 +49,10 @@ final class TimerViewModel {
     
     private func setupTicker() {
         ticker.sink { [weak self] _ in
-            self?.tick()
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.tick()
+            }
         }
         .store(in: &cancellables)
     }
@@ -136,24 +139,19 @@ final class TimerViewModel {
         timeRemaining = calculateDuration()
     }
     
-    // MARK: - Hold to Stop Logic
+    // MARK: - Hold to Stop Logic (Modern Swift Concurrency)
     
     func beginHold() {
         isHolding = true
         holdProgress = 0
         HapticManager.impactLight()
-
-        let startTime = Date()
-        let duration: Double = 2.0
-
-        holdTimer = Timer.scheduledTimer(withTimeInterval: 1 / 60.0, repeats: true) { [weak self] t in
-            guard let self = self else { t.invalidate(); return }
+        
+        holdTask?.cancel()
+        holdTask = Task { @MainActor in
+            let startTime = Date()
+            let duration: Double = 2.0
             
-            // Capture timer to use it inside Task
-            let timerToInvalidate = t
-            
-            Task { @MainActor in
-                guard self.isHolding else { timerToInvalidate.invalidate(); return }
+            while !Task.isCancelled && self.isHolding {
                 let elapsed = Date().timeIntervalSince(startTime)
                 let progress = min(elapsed / duration, 1.0)
                 
@@ -162,20 +160,23 @@ final class TimerViewModel {
                 }
                 
                 if progress >= 1.0 {
-                    timerToInvalidate.invalidate()
                     HapticManager.notifyWarning()
                     self.stopFocus()
                     self.isHolding = false
                     self.holdProgress = 0
+                    return
                 }
+                
+                // Sleep for ~16ms to maintain 60fps
+                try? await Task.sleep(nanoseconds: 16_000_000)
             }
         }
     }
     
     func cancelHold() {
         isHolding = false
-        holdTimer?.invalidate()
-        holdTimer = nil
+        holdTask?.cancel()
+        holdTask = nil
         withAnimation(.easeOut(duration: 0.3)) {
             holdProgress = 0
         }
